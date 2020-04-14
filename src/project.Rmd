@@ -1,0 +1,866 @@
+Prosper Loan Data analysis by Abdelkarim Aydi
+========================================================
+
+
+
+```{r, echo = F, md_paramters}
+# Markdown parameters
+echo <- F
+messages <- F
+warnings <- F
+
+# Figure size
+width <- 15
+height <- 15
+
+```
+
+
+```{r echo=echo, message=messages, warning=warnings, packages}
+# Load all of the packages that you end up using in your analysis in this code
+# chunk.
+
+# Notice that the parameter "echo" was set to FALSE for this code chunk. This
+# prevents the code from displaying in the knitted HTML output. You should set
+# echo=FALSE for all code chunks in your file, unless it makes sense for your
+# report to show the code that generated a particular plot.
+
+# The other parameters for "message" and "warning" should also be set to FALSE
+# for other code chunks once you have verified that each plot comes out as you
+# want it to. This will clean up the flow of your report.
+
+library(ggplot2)
+library(dplyr)
+library(psych)
+# To plot correlation matrices
+library(corrplot)
+```
+
+```{r echo=echo, message=messages, warning=warnings, Load_the_Data}
+# Load the Data
+file_path <- file.path('.', '..', 'data')
+
+file_name <- 'Prosper Loan Data.csv'
+raw_data_set <- read.csv(file.path(file_path, file_name))
+
+file_name <- 'Prosper Loan Data - Variable Definitions.csv'
+meta_data_set <- read.csv(file.path(file_path, file_name))
+
+```
+
+
+> **Data set overview**: The analysed data set in this docuemnt is Loan Data from
+Prosper Bank. It consists in a data base of 113,937 loans with 81 variables on each loan, including among other variables: loan amount, borrower income, borrower employment status, borrower credit history and credit score which assesses credit risk for customers.
+
+
+```{r echo=echo, message=messages, warning=warnings, Data_set_overview}
+dims <- dim(raw_data_set)
+dims
+```
+
+> **Selecting intresting features**: 
+Given the high number of features, I  filtred out features with missing values ratio
+exceeding 10%.
+
+```{r echo=echo, message=messages, warning=warnings, Choosing_features_to_study}
+
+# Computing missing data ratio
+
+n <- nrow(raw_data_set)
+stats <- sort(colSums(is.na(raw_data_set)), decreasing = TRUE)
+stats <- 100*stats/n
+
+missing_values_stats <- data.frame(feature = factor(names(stats),levels=names(stats)),
+                                   ratio = stats)
+
+# Visualizing missing data ratio for every feature
+
+d = ggplot(missing_values_stats, aes(x = feature, y = ratio))
+d + geom_bar(stat = 'identity') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Pre-selecting the most available features:
+# i.e number of missing values < 10% # of rows
+
+print('Pre-selected features that have less than 10 % missing values')
+pre_selected_features = missing_values_stats%>%filter(ratio <= 10.0)
+pre_selected_features
+
+
+print('Selecting the most appropriate features')
+selected_features = c('CreditGrade',
+      'Term',
+      'LoanStatus',
+      'BorrowerRate',
+      'BorrowerState',
+      'Occupation',
+      'EmploymentStatus',
+      'IsBorrowerHomeowner',
+      'TotalCreditLinespast7years',
+      'DelinquenciesLast7Years',
+      'PublicRecordsLast10Years',
+      'IncomeVerifiable',
+      'StatedMonthlyIncome',
+      'Recommendations',
+      'ProsperRating..Alpha.',
+      'LoanOriginalAmount')
+print(selected_features)
+data_set = raw_data_set%>%select(one_of(selected_features))
+```
+
+
+# Univariate Plots Section
+
+
+
+```{r echo=echo, message=messages, warning=warnings, filtered_data_set_dims}
+dims = dim(data_set)
+dims
+```
+Our data set consists in 113937 load records described with 16 features detailed
+as follows:
+
+
+```{r echo=echo, message=messages, warning=warnings, data_set_description}
+str(data_set)
+
+```
+The data set consists in 8 categorical features and 8 numeric ones. For categorical 
+feature I am plotting count plots and for numeric ones I am plotting histograms.
+Based on str output, I determined categorical features and numeric ones as follows:
+
+```{r echo=echo, message=messages, warning=warnings, features_type}
+
+# Just for adapting feature name
+data_set = data_set%>%
+  mutate(ProsperRating_Alpha = ProsperRating..Alpha.)%>%
+  select(-ProsperRating..Alpha.)
+
+categorical_features = c("CreditGrade", "LoanStatus","BorrowerState","Occupation",
+                         "EmploymentStatus","IsBorrowerHomeowner","IncomeVerifiable",
+                         "ProsperRating_Alpha")
+                         
+numeric_features = setdiff(colnames(data_set), categorical_features)
+
+```
+
+
+
+> **Remark** : For categorical features, missing values are sometimes encoded as "".
+So they have to be handled properly. In fact, the meta data set, shows that
+`CreditGrade` is available for loans issued before 2009 and `ProsperRating_alpha`
+deals with loans issued after July 2009. So one good pre-processing step is to
+apporpriately blend these two risk metrics.
+
+```{r echo=echo, message=messages, warning=warnings, fig_1}
+
+ggplot(data = data_set, aes(Recommendations))+geom_histogram(binwidth = 1,
+                                                             color = 'white')
+
+```
+
+The vast majority of customers apply for loan without any recommandations.
+Another intresting aspect, is the long tail of distributions i.e some 
+applications have an oustanding number of recommendations. I suspect this loans to be of relatively high amount and thus need more warranties to be granted, which I will check in section bi-variate section.
+
+```{r echo=echo, message=messages, warning=warnings, fig_2}
+ggplot(data = data_set, aes(Term))+
+  geom_histogram(binwidth = 1,color = 'white')
+```
+
+There are 3 loan term options: (12, 36 or 60 months). This numeric variable can be viewed as categorical ordinal variable (short term, mid term and long term). Moreover, the mode is situated at 36 months (3 years), followed by 5 year terms and then short term loans. Naturally, the term is corrolated with the loan ammount, which I will check in the next bi-variate section.
+
+```{r echo=echo, message=messages, warning=warnings, fig_3}
+
+ggplot(data = data_set, aes(BorrowerRate))+
+  geom_histogram(binwidth = 0.005,color = 'white')
+summary(data_set$BorrowerRate, na.rm = TRUE)
+
+```
+
+This figure shows the distribution of borrower intrest rates. These rates range from
+5 % up to 36 % with the mode situated at 32.5 %. Moreover, the distribution is
+very skewed to the left relative to the mode.
+
+```{r echo=echo, message=messages, warning=warnings, fig_4}
+
+# Deealing with missing values
+ggplot(data = data_set, aes(TotalCreditLinespast7years))+
+  geom_histogram(binwidth = 1, color = 'white', na.rm = TRUE)
+summary(data_set$TotalCreditLinespast7years, na.rm = TRUE)
+```
+
+This plot shows the number of credit applications in the past seven years at the
+time the credit profile was pulled for each customer. On average, applicants have a 
+history of 26.75 Credit applications issued in the last 7 years. Given the above
+remark about term, some applicats must have issued multiple applications on the same time.
+
+```{r echo=echo, message=messages, warning=warnings, fig_5}
+
+ggplot(data = data_set, aes(DelinquenciesLast7Years))+
+  geom_histogram(binwidth = 1, color = 'white', na.rm = TRUE)
+
+```
+
+This plot shows the number of delinquencies in the past 7 years at the time the
+credit profile was pulled.The vast majority of credit applicant are non-delinquent.
+But given ,the distribution has a long tail to the right, some applications are
+manifesting a consistant delinquent behaviour, and I suspect their CreditGrade
+should reflect their high risk and perhaps declined application.
+
+```{r echo=echo, message=messages, warning=warnings, fig_6}
+ggplot(data = data_set, aes(StatedMonthlyIncome))+
+  geom_histogram(binwidth = 1e4,color = 'white', na.rm = TRUE)
+
+summary(data_set$StatedMonthlyIncome, na.rm = T)
+```
+
+This chart shows the distribution of monthly incomes for borrowers. 
+This distribution is highly skewed to the right with incomes that go up to 1.5M\$/month !
+
+These values are extremely high relative to population median of 4667\$/month. So,
+one reason I suspect is this stated incomes are fake and unjustificable otherwise
+they logically don't need to borrow money at all !!!
+To check the distribution more precisely, I truncate the incomes at 10K\$/month,
+and plot seperately the two distributions. The second distribution is plotted 
+in log scale x-axis.
+
+```{r echo=echo, message=messages, warning=warnings, fig_7}
+low_income <- data_set%>%filter(StatedMonthlyIncome < 1e4)
+ggplot(data = low_income, aes(x = StatedMonthlyIncome))+
+  geom_histogram(binwidth = 5e2,color = 'white', na.rm = TRUE)
+
+high_income <- data_set%>%filter(StatedMonthlyIncome > 1e4)
+ggplot(data = high_income, aes(x = StatedMonthlyIncome))+scale_x_log10()+
+  geom_histogram(binwidth = 0.1,color = 'white', na.rm = TRUE)
+
+
+# Computing median incomes within each category
+medians <- data_set%>%
+  mutate(is_income_low = StatedMonthlyIncome <=1e4)%>%
+  select(StatedMonthlyIncome,is_income_low)%>%
+  group_by(is_income_low)%>%
+  summarise(median = median(StatedMonthlyIncome))
+
+medians
+
+```
+
+The monthly income below 10K\$ is distributed in a bell-like curve with a median
+of 4417 \$/month. One can note a significant fraction of the applicants have 
+no income at all. This extreme precarious population, I suspect, is applying for
+loans to accomodate daily needs so the ammount of the loan should be low and also 
+rated as highly risky.
+
+The high income applicants, have monthly income ranging from 10K\$ to 1.5M\$
+with a median  value of 12500. I prefered using the median because it is more robust
+than the mean to outliers. But one intriguing idea I find, why
+these extreme wealthy people applying for loans ?
+
+```{r echo=echo, message=messages, warning=warnings, fig_8}
+ggplot(data = data_set, aes(PublicRecordsLast10Years))+
+  geom_histogram(binwidth = 1,color = 'white', na.rm = TRUE)
+```
+
+This plot shows the distribution of applicants public records for the last 10 years.
+In USA, these records may contain these useful informations:
+  - Records of law court proceedings
+  - Mug shot
+  - Marriage records
+  - Death records
+The vast majority have empty public records but as above this distribution is 
+heavy tailed and some applicants have large records which could correlate with
+a delinquent behaviour and gives a hint about Prosper decision.
+```{r echo=echo, message=messages, warning=warnings, fig_9}
+
+ggplot(data = data_set, aes(LoanOriginalAmount))+
+  geom_histogram(binwidth = 1e3,color = 'white', na.rm = TRUE)
+
+summary(data_set$LoanOriginalAmount)
+
+```
+
+All issued loans are between 1K\$ and 35K\$ with a mean of 8.4K\$.
+
+```{r echo=echo, message=messages, warning=warnings, plot_uni_cat_features}
+
+# Create a function that sort categorical feature levels in plots according 
+# to count to facilitate interp
+
+plot_categorical_feature <- function(feature_name,
+                                     data = data_set,
+                                     rotate_x = FALSE){
+  
+  tmp <- data%>%select(feature = feature_name)%>%filter(!is.na(feature))
+  counts <- sort(summary(tmp$feature), decreasing = TRUE)
+  count_names <- names(counts)
+  tmp$feature<- factor(x = tmp$feature, levels = count_names)
+  base_plot <- ggplot(data = tmp, aes(feature))+
+    geom_bar(na.rm = TRUE)+
+    xlab(feature_name)
+  
+  if (rotate_x) {
+    
+    p <- base_plot + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+    return (p)
+    
+  } else {
+    
+    return (base_plot)
+    
+  }
+}
+
+plot_categorical_feature(feature_name = "CreditGrade")
+plot_categorical_feature(feature_name = "ProsperRating_Alpha")
+```
+
+> **Remarks**: The Credit rating that was assigned at the time the listing went live. Applicable for loans before 2009.The grades are ordered as follows from high risk to low risk:
+1 - HR, 2 - E, 3 - D, 4 - C, 5 - B, 6 - A, 7 - AA
+The "" denotes a missing values 0 - N/A. These missing values can be imputed
+using the ProsperRating_Alpha
+
+
+```{r echo=echo, message=messages, warning=warnings, feature_engineering}
+
+# Blending risk metrics
+blended_data_set <- data_set%>%
+  filter(CreditGrade != 'NC')%>%
+  mutate(is_credit_grade_missing = CreditGrade =="",
+         is_prosper_rating_missing = ProsperRating_Alpha =="",
+         are_both_missing = is_prosper_rating_missing & is_credit_grade_missing)%>%
+  filter(!are_both_missing)%>%
+  mutate(risk_metric = if_else(is_prosper_rating_missing,CreditGrade,
+                              ProsperRating_Alpha))%>%
+  select(-c(is_credit_grade_missing,
+            is_prosper_rating_missing,
+            are_both_missing,
+            CreditGrade,
+            ProsperRating_Alpha))
+
+```
+
+
+
+```{r echo=echo, message=messages, warning=warnings, fig_10}
+plot_categorical_feature(data = blended_data_set,
+                         feature_name = "risk_metric")
+
+```
+
+The risk metric aggregation splits applicants into 7 categories as mentionend
+above HR (high risk) -> AA (low risk). The studied data set shows that the risk
+metric mode is C which stands for average risk and the smallest category is AA
+whose applicants loans are more likely to be granted.
+
+```{r echo=echo, message=messages, warning=warnings, fig_11}
+plot_categorical_feature(data = blended_data_set,
+                         feature_name = "BorrowerState",
+                         rotate_x = T)
+
+```
+
+The applicants are distributed across 51 states. The state that issues the most 
+applications is California, followed by Texas and New York.
+
+
+```{r echo=echo, message=messages, warning=warnings, fig_12}
+
+plot_categorical_feature(data = blended_data_set,
+                         feature_name = "Occupation",
+                         rotate_x = T)
+```
+
+The plot shows that many applicants don't provide their occupation. Computer 
+programmers are among the most freqeunt applicants followed by executives and
+Teachers.
+
+```{r echo=echo, message=messages, warning=warnings, fig_13}
+plot_categorical_feature(data = blended_data_set,
+                         feature_name = "EmploymentStatus",
+                         rotate_x = T)
+```
+
+The vast majority of applicants are in full-time jobs.
+
+```{r echo=echo, message=messages, warning=warnings, fig_14}
+plot_categorical_feature(data = blended_data_set,
+                         feature_name = "IncomeVerifiable")
+
+
+```
+
+The great majority of applicants have verifiable incomes. But what is the effect
+of income verificiation on credit acceptance ?
+
+```{r echo=echo, message=messages, warning=warnings}
+plot_categorical_feature(data = blended_data_set,
+                         feature_name = "IsBorrowerHomeowner")
+
+```
+
+The applicants population  is roughly balanced with respect to 
+Home ownership. But still, is this piece of information useful for granting
+loans ?
+
+```{r echo=echo, message=messages, warning=warnings}
+plot_categorical_feature(data = blended_data_set,
+                         feature_name = "LoanStatus",
+                         rotate_x = T)
+
+```
+
+
+The majority of loan record are either current or completed. But, from the
+perspective of bank, all other categories are worth of intrest because
+it represent direct loss if not repaid.
+
+
+# Univariate Analysis
+
+
+### What is the structure of your dataset?
+
+The studied data set consists of sampled and pre-processed version of the Prosper
+loan data set. It contains 113665 loan records and 15 features as follows:
+
+- Categorical features
+  - risk_metric (engineered feature)
+  - LoanStatus Current - completed - charged off - canceld - due - ...
+  - BorrowerState (all USA states)
+  - Occupation (see above)
+  - EmploymentStatus (see above)
+  - IsBorrowerHomeowner (boolean)
+  - IncomeVerifiable (boolean)
+
+- numerical features
+  - Term 12 36 or 60 months
+  - BorrowerRate (%) 5% -> 35%
+  - TotalCreditLinespast7years: 2 -> 136
+  - DelinquenciesLast7Years: 0 -> 99
+  - PublicRecordsLast10Years: 0 -> 38
+  - Recommendations 0 -> 40
+  - LoanOriginalAmount 1K\$ -> 35K\$
+  
+### What is/are the main feature(s) of interest in your dataset?
+
+The engineered risk metric is the main feature of intrest because it determines
+the outcome of loan application process.
+
+### What other features in the dataset do you think will help support your \
+investigation into your feature(s) of interest?
+
+I think the intrest rate, income and delinquency records and job status are
+potential informative features.
+
+### Did you create any new variables from existing variables in the dataset?
+
+Yes, risk_metric, it is a blended version of two risk scores that are issued for
+different periods
+
+### Of the features you investigated, were there any unusual distributions? \
+Did you perform any operations on the data to tidy, adjust, or change the form \
+of the data? If so, why did you do this?
+
+I think the StatedIncomeRate is very skewed feature with very high and unrealistic
+incomes for a merly 35K\$ loan at best cases !!! Perhaps, I would remove the top percentile capping stated incomes at 20K\$. 
+
+
+# Bivariate Plots Section
+
+
+```{r fig.width = width,fig.height = height, echo=echo, message=messages, warning=warnings, Bivariate_Plots}
+
+# Sample down data set to plot correlation structure
+n <- nrow(blended_data_set)
+sample_data <- blended_data_set%>%
+  na.omit()%>%
+  select(numeric_features)%>%
+  slice(sample(1:n,10000))
+
+pairs.panels(sample_data,pch=21,stars=TRUE)
+```
+
+
+```{r echo=echo, message=messages, warning=warnings, Bivariate_Plots_2}
+
+# Sample down data set to plot correlation structure
+numeric_features_data <- blended_data_set%>%
+  na.omit()%>%
+  select(numeric_features)
+
+
+corr_matrix =cor(numeric_features_data)
+corrplot(corr_matrix,
+         method = "number",
+         type="upper",
+         tl.cex = 0.5)
+```
+
+The previous 2 charts show the correlation strcuture of numeric features.
+
+The first chart is computed with a subset of data. To investigate all correlations,
+the second chart is computed on the whole data set.The covariance matrix of the numeric features and unveils many aspects of the data set.  In order of correlation strength:
+
+- Loan term is positevely correlated with loan ammount (+34%): i.e the higher 
+the loan amount the longer the term is, (confirm to my initial intuition)
+- Loan amount is negatively correlated with intrest rate (-33%): i.e the higher the intrest rate the lower the loan amount is.
+- Delinquent applicants tend to have much heavier public records (+24%)
+- Applicants with higher income tend to apply for higher amount of loans (+20%)
+
+
+In the first section, I formulated some questions to answer
+by inspecting bivariate plots. The studied relationships are:
+
+ * LoanOriginalAmount = f(Recommendations)
+ * LoanOriginalAmount = f(StatedMonthlyIncome)
+ * LoanOriginalAmount = f(Term)
+ * LoanOriginalAmount = f(BorrowerRate)
+ * risk_metric = f(StatedMonthlyIncome)
+ * risk_metric = f(IncomeVerifiable)
+ * risk_metric = f(IsBorrowerHomeowner)
+ * risk_metric = f(EmploymentStatus)
+ * risk_metric = f(LoanStatus)
+ * risk_metric = f(BorrowerRate)
+ * risk_metric = f(DelinquenciesLast7Years)
+ 
+
+
+ 
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_1}
+
+p <- ggplot(blended_data_set, aes(Recommendations,LoanOriginalAmount))
+
+p+geom_point()
+p+geom_boxplot(aes(group = cut_width(Recommendations,1)))
+
+```
+
+There is no clear relashionship between the number of recommendations and 
+loan amount. But the statistical test shows that recommandation is statistically
+significant on loan amount: higher recommendation -> lower amount.
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_stat_1}
+recom <- blended_data_set$Recommendations
+amount <- blended_data_set$LoanOriginalAmount
+
+test_recomm_amount<-lm(amount ~ recom)
+summary(test_recomm_amount)
+```
+
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_2}
+
+blended_data_set <- blended_data_set%>%mutate(is_high_income = StatedMonthlyIncome >= 1e4)
+
+ggplot(blended_data_set%>%filter(is_high_income),aes(StatedMonthlyIncome,LoanOriginalAmount))+
+  scale_x_log10()+
+  geom_point(alpha = 0.1)
+
+
+ggplot(blended_data_set%>%filter(!is_high_income),aes(StatedMonthlyIncome,LoanOriginalAmount))+
+  geom_point(alpha = 0.1)
+
+```
+
+There is no visual effect of income on loan amount.
+
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_3}
+p <- ggplot(blended_data_set, aes(Term,LoanOriginalAmount))
+p+geom_point()
+
+tmp <- blended_data_set%>%mutate(loan_term = as.factor(Term))
+p <- ggplot(tmp, aes(loan_term,LoanOriginalAmount))
+p+geom_boxplot()
+
+```
+Borrowers applying for high loan amounts tend to choose longer payment terms.
+
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_3_bis}
+
+ggplot(blended_data_set,aes(BorrowerRate,LoanOriginalAmount))+
+  geom_point(na.rm = T, alpha = 0.1)
+```
+Loan applicants tend to decrease loan amount when faced with high intrest
+rates.
+
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_4}
+
+ggplot(blended_data_set%>%filter(is_high_income),
+       aes(risk_metric, StatedMonthlyIncome))+
+  geom_boxplot(na.rm = T)+
+  scale_y_log10()
+
+ggplot(blended_data_set%>%filter(!is_high_income),
+       aes(risk_metric, StatedMonthlyIncome))+
+  geom_boxplot(na.rm = T)
+
+```
+
+These figures are very informative of risk scoring as suspected. For moderate monthly income, applicants with higher incomes are considered less risky and are likely to get their loan accepted.However,it seems that income is not a significant factor for high income applicants.
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_5}
+ggplot(blended_data_set,aes(risk_metric,IncomeVerifiable ))+
+  geom_count(na.rm = T)
+
+```
+```{r echo=echo, message=messages, warning=warnings, Bivar_stat_2}
+risk <- blended_data_set$risk_metric
+income_verif <- blended_data_set$IncomeVerifiable
+
+test_risk_income_verif<-chisq.test(x = risk, y = income_verif)
+test_risk_income_verif
+```
+
+The plot and Chi-Square statistical test proves with high confidence that applicants with unverifiable income are scored differently than the ones with some income evidence.
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_6_bis}
+ggplot(blended_data_set,aes(risk_metric,(IsBorrowerHomeowner) ))+
+  geom_count(na.rm = T)
+
+```
+```{r echo=echo, message=messages, warning=warnings, Bivar_stat_3}
+risk <- blended_data_set$risk_metric
+is_home_owner <- blended_data_set$IsBorrowerHomeowner
+
+test_risk_home<-chisq.test(x = risk, y = is_home_owner)
+test_risk_home
+```
+
+The plot and Chi-Square statistical test proves with high confidence that applicants who own their home are scored differently than the ones with some income evidence and more likely to get their loan accepted.
+
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_6}
+ggplot(blended_data_set,aes(risk_metric,EmploymentStatus ))+
+  geom_count(na.rm = T)
+
+```
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_stat_4}
+risk <- blended_data_set$risk_metric
+status <- blended_data_set$EmploymentStatus
+
+test_risk_status<-chisq.test(x = risk, y = status)
+test_risk_status
+```
+
+
+The plot and Chi-Square statistical test proves with high confidence that applicants employment status is an influent factor on risk score.
+
+
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_7}
+ggplot(blended_data_set,aes(risk_metric,LoanStatus ))+
+  geom_count(na.rm = T)
+
+```
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_stat_5}
+risk <- blended_data_set$risk_metric
+status <- blended_data_set$LoanStatus
+
+test_risk_status<-chisq.test(x = risk, y = status)
+test_risk_status
+```
+
+The plot and Chi-Square statistical test proves with high confidence that applicants loan status is an informative factor on risk score.
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_8}
+ggplot(blended_data_set,aes(risk_metric,BorrowerRate ))+
+  geom_boxplot(na.rm = T)
+
+```
+
+This plot exhibits a very strong positive correlation between credit risk and loan intrest rates. Very low risk applcants get their loans granted with
+minimal rates (10%), and vice versa.
+
+```{r echo=echo, message=messages, warning=warnings, Bivar_fig_9}
+ggplot(blended_data_set,aes(risk_metric,DelinquenciesLast7Years ))+
+  geom_boxplot(na.rm = T)
+
+```
+
+# Bivariate Analysis
+
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. How did the feature(s) of interest vary with other features in \
+the dataset?
+
+The feature of intrest risk_metric was found to be highly correlated with borrower rate, monthly income only for moderate incomes, and wether or not it is verifiable, employement status, home ownership. 
+
+### Did you observe any interesting relationships between the other features \
+(not the main feature(s) of interest)?
+
+Borrower rate and monthly income are highly negatively correlated: it seems that
+applicants adapt their loan amount to the intrest rate which determined by the
+credit score, once all negociations are finished.
+
+Moreover there is a strong evidence that longer terms are associated with
+higher loan amount.
+
+
+### What was the strongest relationship you found?
+
+The risk metric and borrower rate are highly correlated.
+
+# Multivariate Plots Section
+
+
+
+```{r echo=echo, message=messages, warning=warnings, Multivariate_Plots}
+
+ggplot(blended_data_set%>%filter(is_high_income), 
+       aes(LoanOriginalAmount, StatedMonthlyIncome))+
+  geom_point(alpha = 0.5, aes(color = IncomeVerifiable))+
+  scale_y_log10()
+
+ggplot(blended_data_set%>%filter(!is_high_income), 
+       aes(LoanOriginalAmount, StatedMonthlyIncome))+
+  geom_point(alpha = 0.5,aes(color = IncomeVerifiable))
+
+```
+
+It turns out that extremely high incomes (>  10K\$/month) are not justifiable and curiously almost all no income applicants are unable to justify it either. Let's get a look at risk metric for this same figures.
+
+```{r echo=echo, message=messages, warning=warnings}
+ggplot(blended_data_set%>%filter(is_high_income), 
+       aes(LoanOriginalAmount, StatedMonthlyIncome))+
+  geom_point(alpha = 0.5, aes(color = risk_metric))+
+  scale_y_log10()
+
+ggplot(blended_data_set%>%filter(!is_high_income), 
+       aes(LoanOriginalAmount, StatedMonthlyIncome))+
+  geom_point(alpha = 0.5,aes(color = risk_metric))
+
+
+```
+
+This figure gives some insights about the interactions between loan amount, applicants monthly income and risk metric:
+
+- In fact, it seems that borrowers applying for low-amount loans are systematically considered more risky compared to borrowers looking for mid-high amount loans which can be clearly seen in the following chart. Moreover, it shows that Delinquencies are highly negatively implacting risk score.
+
+```{r echo=echo, message=messages, warning=warnings}
+ggplot(blended_data_set, aes(risk_metric, LoanOriginalAmount))+
+    geom_boxplot()+
+  geom_point(alpha =0.1,
+             na.rm = T,
+             aes(size = DelinquenciesLast7Years))
+```
+
+
+
+# Multivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. Were there features that strengthened each other in terms of \
+looking at your feature(s) of interest?
+
+Multivariate plots enabled me to investigate some curious questions.
+
+For example, my initial question was: What is the point of borrowing money  high-income borrowers. The answer is that these applicants are pretending very high salary without any evidence. As consquence, their risk score is high and are
+likely to get rejected.
+
+Moreover, I discovered that the low amount loans are likey to be rejected.
+
+### Were there any interesting or surprising interactions between features?
+
+The last figure shows many intresting insights: For example, applicants with few delinquencies cases tend to apply for higher loans amount and get a decent risk score. However, many applicants have applied for several loans during the last years and if it happens that defaulted or not payed it back tend to apply for
+lower amount for the next times and as a consequence the bank tend to class them
+as high risk candidates.
+
+### OPTIONAL: Did you create any models with your dataset? Discuss the \
+strengths and limitations of your model.
+
+I did not create statisctical models.
+------
+
+# Final Plots and Summary
+
+
+### Plot One
+```{r echo=echo, message=messages, warning=warnings, Plot_One}
+
+ggplot(blended_data_set, aes(risk_metric, LoanOriginalAmount))+
+    geom_boxplot()+
+  geom_point(alpha =0.1,
+             na.rm = T,
+             aes(size = DelinquenciesLast7Years))+
+  labs(x = 'Risk metric', y = 'Loan original amount ($)',
+       title = 'Loan amount and delinquencies effects on Prosper loan application')+
+  scale_size_continuous(name = "# Delinquencies")
+
+
+```
+
+### Description One
+This figure shows:
+- A boxplot of loan amounts across risk metrics: High risk applicants tend to diminish their loan amount
+
+- A scatter plot of number of delinquencies across risk metrics: Low loan amounts
+are correlated with high number of delinquencies.
+
+### Plot Two
+```{r echo=echo, message=messages, warning=warnings, Plot_Two}
+ggplot(blended_data_set,aes(risk_metric,100*BorrowerRate))+
+  geom_boxplot(na.rm = T)+
+  labs(x = 'Risk metric', y = 'Borrower rate (%)',
+       title = 'Relationship between borrower rate and risk metric')
+```
+
+### Description Two
+
+This figure shows a boxplot of borrower rates for different risk profiles: High risk applicants tend to have heigher rates to compensate for it.
+
+
+### Plot Three
+```{r echo=echo, message=messages, warning=warnings, Plot_Three}
+
+ggplot(blended_data_set%>%filter(!is_high_income), 
+       aes(LoanOriginalAmount, StatedMonthlyIncome))+
+  geom_point(alpha = 0.2,
+             na.rm = T,
+             aes(color = risk_metric,
+                             size = DelinquenciesLast7Years))+
+  labs(x = 'Loan original amount ($)', y = 'Monthly income ($)',
+       title = 'Loan amount and monthly income effects on Prosper loan application')+
+  scale_color_discrete(name = "Risk metric")+
+  scale_size_continuous(name = "# Delinquencies")
+```
+
+### Description Three
+The figure shows the most 3 important factors on Prosper credit score: number of delinquencies, monthly income and loan amount.
+
+------
+
+# Reflection
+
+
+
+Insights:
+The analysis of Prosper Loan Data set lead me to a number of insights:
+- Loan amount, Delinquencies history and monthly income are the most informative
+features about credit risk.
+- Loan application is a dynamic process: borrower change and adapt to bank constrains given his/her history delinquencies, previous loan decisions ... and generally loan amounts decreases over time as risk of default goes up.
+
+Struggles:
+As I worked through the project, I faced some challenges:
+- High number of features: the step of feature pre-selection among ~100 features.
+- High number of missing values especially for key features such as Prosper credit scores
+- Presence of anomalies presence in some important features such as income with very different range form 0 -> 1.5M\$ !
+
+Surprises:
+As I worked through the project, the exploration surprised me :
+
+- To see that maximum loan amount are relatively low !
+- To see that programmers and executives are among the most frequent occupations
+as I thought previously to this project that are in financial ease situation.
+- To see such number of recurrent delinquencies, up to 100 !
+- To see that extremey high income applicants are applying for 30K\$ !!
+- To note that borrower rate was intentionnaly higher for high risk applicants
+
+Future work:
+- This study can be carried on to offer an online tool for loan simulation. Based on the above insight, one can start from the 3 most informative featurs to build a model of credit risk.
